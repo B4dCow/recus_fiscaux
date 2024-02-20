@@ -1,10 +1,8 @@
 # Import Packages
 import pandas as pd
-import PyPDF2
 import os
-from PyPDF2 import PdfReader, PdfWriter
-from PyPDF2.generic import AnnotationBuilder
 import fitz
+from num2words import num2words
 from config import annee, prenom_nom_pres
 
 # Import des donnees adherants
@@ -47,72 +45,77 @@ df_fisc = df_fisc.loc[~df_fisc['Code Postale'].isnull()]
 # cree les champs a renseigner
 df_fisc['TypeDes'] = df_fisc['Type'] + " " + df_fisc['Designation']
 df_fisc['AdresseComplete'] = df_fisc['Adresse'] + " " + df_fisc['Code Postale'].astype(int).astype(str).str.zfill(5) + " " + df_fisc['Localité'] 
-df_fisc['MontantStr'] =  df_fisc["Montant"].apply(lambda x: "***** {:10.2f} € *****".format(x).replace('.', ','))
+df_fisc['MontantStr'] =  df_fisc["Montant"].apply(lambda x: "***** {:10.2f} &#8364; *****".format(x).replace('.', ','))
+
+def montant_lettres(num):
+    # fonction tranformant le montant en lettres
+    euros,centimes = "{:10.2f}".format(num).split(".")
+    if centimes == "00":
+        return f"{num2words(int(euros), lang='fr')} EUROS".upper()
+    else:
+        return f"{num2words(int(euros), lang='fr')} EUROS ET \
+{num2words(int(centimes), lang='fr')} CENTIIMES".upper()
+    
+df_fisc['MontantLettres'] =  df_fisc["Montant"].apply(montant_lettres)
+
 df_fisc.reset_index(drop=True, inplace=True)
 coord_info_asso = {
-    f"Cumul {annee-1}":(130, 226, 200, 219),
-    f"5 janvier {annee}":(400, 235, 520, 228),
-    f"{prenom_nom_pres}\nPrésident":(350, 145, 480, 125)
+    f"Cumul {annee-1}": (150, 564, 350, 584),
+    f"5 janvier {annee}": (405, 555, 520, 575),
+    f"{prenom_nom_pres}\nPrésident": (350, 645, 480, 670)
 }
 coord_info_ad= {
-    'TypeDes' : (150, 350, 400, 341),
-    'Référence' : (450, 350, 520, 343),
-    'AdresseComplete': (130, 322, 520, 313),
-    'MontantStr' : (400, 292, 520, 282),
-    'Mode de paiement' : (185, 196, 250, 189)
+    'TypeDes' : (150, 442, 350, 501),
+    'Référence' : (450, 442, 520, 501),
+    'AdresseComplete': (130, 465, 520, 500),
+    'MontantStr' : (400, 505, 520, 520),
+    'Mode de paiement' : (185, 594, 270, 620),
+    'MontantLettres' : (160, 540, 565, 565)
 
 }
-def template_writer(template_path="data/input/RECU FISCAL.pdf",info_asso=coord_info_asso):
-    # import le template
-    reader = PdfReader(template_path)
-    page = reader.pages[0]
-    writer = PdfWriter()
-    writer.add_page(page)
-    
-    # ajouter les elements fixes
-    for key in info_asso.keys():
-        annotation = AnnotationBuilder.free_text(
-            key,
-            rect=info_asso[key],
-            font="Arial",
-            bold=True,
-            italic=False,
-            font_size="8pt",
-            font_color="000000",
-            border_color="ffffff",
-            background_color="ffffff",
-        )
-        writer.add_annotation(page_number=0, annotation=annotation)
-    
-    with open(f"data/input/template_{annee}.pdf", "wb") as fp:
-        writer.write(fp)
-    doc = fitz.open(f"data/input/template_{annee}.pdf")
-    doc[0].insert_image(fitz.Rect(350, 500, 480, 700),filename="data/input/SignPresident.png")
-    doc.save(f"data/input/template_{annee}.pdf",incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
 
+   
+def html_format(txt):
+    html_txt = """<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exemple</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        .custom-text {
+            font-weight: bold;
+            font-size: 7pt;
+        }
+    </style>
+</head>
+<body>
+    <span class="custom-text">"""+txt+"""</span>
+</body>"""
+    return html_txt
+
+def template_writer(template_path="data/input/RECU FISCAL.pdf",info_asso=coord_info_asso):
+    # importe le template
+    doc = fitz.open(template_path)
+    page = doc[0]
+    # ajouter les elements fixes
+    for key in info_asso.keys():    
+        rc = page.insert_textbox(info_asso[key],key,fontname="helv",fontsize=8)
+ 
+    page.insert_image(fitz.Rect(350, 500, 480, 700),filename="data/input/SignPresident.png")
+    doc.save(f"data/input/template_{annee}.pdf")
+ 
 def pdf_writer(index, info_ad=coord_info_ad):
 
     # import le template
-    reader = PdfReader(f"data/input/template_{annee}.pdf")
-    page = reader.pages[0]
-    writer = PdfWriter()
-    writer.add_page(page)
+    doc = fitz.open(f"data/input/template_{annee}.pdf")
+    page = doc[0]
 
     # Ajouter les elements variables
     for key in info_ad.keys():
         # Create the annotation and add it
-        annotation = AnnotationBuilder.free_text(
-            f"{df_fisc.loc[index,key]}",
-            rect=info_ad[key],
-            font="Arial",
-            bold=True,
-            italic=False,
-            font_size="8pt",
-            font_color="000000",
-            border_color="ffffff",
-            background_color="ffffff",
-        )
-        writer.add_annotation(page_number=0, annotation=annotation)
-
-    with open(f"data/output/RF_{annee}_{df_fisc.loc[index,"Référence"]}.pdf", "wb") as fp:
-        writer.write(fp)
+        page.insert_htmlbox(info_ad[key] ,html_format(f"{df_fisc.loc[index,key]}"))
+                            #fontname="helv",fontsize=8)
+    doc.save(f"data/output/RF_{annee}_{df_fisc.loc[index,'Référence']}.pdf")    
